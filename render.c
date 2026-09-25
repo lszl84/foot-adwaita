@@ -1,4 +1,5 @@
 #include "render.h"
+#include "adwaita.h"
 
 #include <limits.h>
 #include <signal.h>
@@ -2315,6 +2316,7 @@ render_wait_for_preapply_damage(struct terminal *term)
     mtx_unlock(&term->render.workers.preapplied_damage.lock);
 }
 
+
 struct csd_data
 get_csd_data(const struct terminal *term, enum csd_surface surf_idx)
 {
@@ -2334,21 +2336,33 @@ get_csd_data(const struct terminal *term, enum csd_surface surf_idx)
     const int button_width = title_visible
         ? roundf(term->conf->csd.button_width * scale) : 0;
 
-    int remaining_width = term->width;
+    /* libadwaita header bar layout: buttons at the end, 7px padding,
+     * 3px apart, vertically inside 6px padding */
+    const int spacing = roundf(ADW_BUTTON_SPACING * scale);
+    const int button_y = title_visible ? roundf(ADW_HEADER_PADDING_Y * scale) : 0;
+    const int button_height = button_width;
+    int remaining_width = term->width - roundf(ADW_HEADER_PADDING_X * scale);
 
     const int button_close_width = remaining_width >= button_width ? button_width : 0;
     remaining_width -= button_close_width;
     const int button_close_start = remaining_width;
+    if (button_close_width > 0) remaining_width -= spacing;
 
     const int button_maximize_width = remaining_width >= button_width &&
         term->window->wm_capabilities.maximize ? button_width : 0;
     remaining_width -= button_maximize_width;
     const int button_maximize_start = remaining_width;
+    if (button_maximize_width > 0) remaining_width -= spacing;
 
     const int button_minimize_width = remaining_width >= button_width &&
         term->window->wm_capabilities.minimize ? button_width : 0;
     remaining_width -= button_minimize_width;
     const int button_minimize_start = remaining_width;
+
+    /* The title surface extends below the header, to draw the
+     * header's (raised) shadow on top of the terminal */
+    const int title_shade = title_visible
+        ? min(roundf(ADW_HEADER_SHADE_HEIGHT * scale), term->height) : 0;
 
     /*
      * With fractional scaling, we must ensure the offset, when
@@ -2366,16 +2380,16 @@ get_csd_data(const struct terminal *term, enum csd_surface surf_idx)
         scale * (roundf(title_height / scale) + roundf(term->height / scale)));
 
     switch (surf_idx) {
-    case CSD_SURF_TITLE:  return (struct csd_data){            0, -title_height,      term->width,      title_height};
+    case CSD_SURF_TITLE:  return (struct csd_data){            0, -title_height,      term->width,      title_height + title_shade};
     case CSD_SURF_LEFT:   return (struct csd_data){-border_width, -title_height,     border_width, left_right_height};
     case CSD_SURF_RIGHT:  return (struct csd_data){  term->width, -title_height,     border_width, left_right_height};
     case CSD_SURF_TOP:    return (struct csd_data){-border_width,    top_offset, top_bottom_width,      border_width};
     case CSD_SURF_BOTTOM: return (struct csd_data){-border_width,  term->height, top_bottom_width,      border_width};
 
     /* Positioned relative to CSD_SURF_TITLE */
-    case CSD_SURF_MINIMIZE: return (struct csd_data){button_minimize_start, 0, button_minimize_width, title_height};
-    case CSD_SURF_MAXIMIZE: return (struct csd_data){button_maximize_start, 0, button_maximize_width, title_height};
-    case CSD_SURF_CLOSE:    return (struct csd_data){   button_close_start, 0,    button_close_width, title_height};
+    case CSD_SURF_MINIMIZE: return (struct csd_data){button_minimize_start, button_y, button_minimize_width, button_minimize_width > 0 ? button_height : 0};
+    case CSD_SURF_MAXIMIZE: return (struct csd_data){button_maximize_start, button_y, button_maximize_width, button_maximize_width > 0 ? button_height : 0};
+    case CSD_SURF_CLOSE:    return (struct csd_data){   button_close_start, button_y,    button_close_width, button_close_width > 0 ? button_height : 0};
 
     case CSD_SURF_COUNT:
         break;
@@ -2392,18 +2406,6 @@ csd_commit(struct terminal *term, struct wayl_surface *surf, struct buffer *buf)
     wl_surface_attach(surf->surf, buf->wl_buf, 0, 0);
     wl_surface_damage_buffer(surf->surf, 0, 0, buf->width, buf->height);
     wl_surface_commit(surf->surf);
-}
-
-static void
-render_csd_part(struct terminal *term,
-                struct wl_surface *surf, struct buffer *buf,
-                int width, int height, pixman_color_t *color)
-{
-    xassert(term->window->csd_mode == CSD_YES);
-
-    pixman_image_fill_rectangles(
-        PIXMAN_OP_SRC, buf->pix[0], color, 1,
-        &(pixman_rectangle16_t){0, 0, buf->width, buf->height});
 }
 
 static void
@@ -2519,31 +2521,10 @@ render_csd_title(struct terminal *term, const struct csd_data *info,
     if (info->width == 0 || info->height == 0)
         return;
 
-    uint32_t bg = term->conf->csd.color.title_set
-        ? term->conf->csd.color.title
-        : 0xffu << 24 | term->conf->colors_dark.fg;
-    uint32_t fg = term->conf->csd.color.buttons_set
-        ? term->conf->csd.color.buttons
-        : term->conf->colors_dark.bg;
-
-    if (!term->visual_focus) {
-        bg = color_dim(term, bg);
-        fg = color_dim(term, fg);
-    }
-
-    char32_t *_title_text = ambstoc32(term->window_title);
-    const char32_t *title_text = _title_text != NULL ? _title_text : U"";
-
-    struct wl_window *win = term->window;
-
-    const struct fcft_glyph *M = fcft_rasterize_char_utf32(
-        win->csd.font, U'M', term->font_subpixel);
-
-    const int margin = M != NULL ? M->advance.x : win->csd.font->max_advance.x;
-
-    render_osd(term, surf, win->csd.font, buf, title_text, fg, bg, margin);
+    quirk_weston_subsurface_desync_on(surf->sub);
+    adw_render_title(term, info, buf);
     csd_commit(term, &surf->surface, buf);
-    free(_title_text);
+    quirk_weston_subsurface_desync_off(surf->sub);
 }
 
 static void
@@ -2558,283 +2539,8 @@ render_csd_border(struct terminal *term, enum csd_surface surf_idx,
     if (info->width == 0 || info->height == 0)
         return;
 
-    const bool gamma_correct = wayl_do_linear_blending(term->wl, term->conf);
-
-    {
-        /* Fully transparent - no need to do a color space transform */
-        pixman_color_t color = color_hex_to_pixman_with_alpha(0, 0, gamma_correct);
-        render_csd_part(term, surf->surf, buf, info->width, info->height, &color);
-    }
-
-    /*
-     * The "visible" border.
-     */
-
-    float scale = term->scale;
-    int bwidth = (int)roundf(term->conf->csd.border_width * scale);
-    int vwidth = (int)roundf(term->conf->csd.border_width_visible * scale); /* Visible size */
-
-    xassert(bwidth >= vwidth);
-
-    if (vwidth > 0) {
-
-        const struct config *conf = term->conf;
-        int x = 0, y = 0, w = 0, h = 0;
-
-
-        switch (surf_idx) {
-        case CSD_SURF_TOP:
-        case CSD_SURF_BOTTOM:
-            x = bwidth - vwidth;
-            y = surf_idx == CSD_SURF_TOP ? info->height - vwidth : 0;
-            w = info->width - 2 * x;
-            h = vwidth;
-            break;
-
-        case CSD_SURF_LEFT:
-        case CSD_SURF_RIGHT:
-            x = surf_idx == CSD_SURF_LEFT ? bwidth - vwidth : 0;
-            y = 0;
-            w = vwidth;
-            h = info->height;
-            break;
-
-        case CSD_SURF_TITLE:
-        case CSD_SURF_MINIMIZE:
-        case CSD_SURF_MAXIMIZE:
-        case CSD_SURF_CLOSE:
-        case CSD_SURF_COUNT:
-            BUG("unexpected CSD surface type");
-        }
-
-        xassert(x >= 0);
-        xassert(y >= 0);
-        xassert(w >= 0);
-        xassert(h >= 0);
-
-        xassert(x + w <= info->width);
-        xassert(y + h <= info->height);
-
-        uint32_t _color =
-            conf->csd.color.border_set ? conf->csd.color.border :
-            conf->csd.color.title_set ? conf->csd.color.title :
-            0xffu << 24 | term->conf->colors_dark.fg;
-        if (!term->visual_focus)
-            _color = color_dim(term, _color);
-
-        uint16_t alpha = _color >> 24 | (_color >> 24 << 8);
-        pixman_color_t color =
-            color_hex_to_pixman_with_alpha(_color, alpha, gamma_correct);
-
-        pixman_image_fill_rectangles(
-            PIXMAN_OP_SRC, buf->pix[0], &color, 1,
-            &(pixman_rectangle16_t){x, y, w, h});
-    }
-
+    adw_render_border(term, surf_idx, info, buf);
     csd_commit(term, surf, buf);
-}
-
-static pixman_color_t
-get_csd_button_fg_color(const struct terminal *term)
-{
-    const struct config *conf = term->conf;
-    uint32_t _color = conf->colors_dark.bg;
-    uint16_t alpha = 0xffff;
-
-    if (conf->csd.color.buttons_set) {
-        _color = conf->csd.color.buttons;
-        alpha = _color >> 24 | (_color >> 24 << 8);
-    }
-
-    return color_hex_to_pixman_with_alpha(
-        _color, alpha, wayl_do_linear_blending(term->wl, term->conf));
-}
-
-static void
-render_csd_button_minimize(struct terminal *term, struct buffer *buf)
-{
-    pixman_color_t color = get_csd_button_fg_color(term);
-    pixman_image_t *src = pixman_image_create_solid_fill(&color);
-
-    const int max_height = buf->height / 3;
-    const int max_width = buf->width / 3;
-
-    int width = min(max_height, max_width);
-    int thick = min(width / 2, 1 * term->scale);
-
-    const int x_margin = (buf->width - width) / 2;
-    const int y_margin = (buf->height - width) / 2;
-
-    xassert(x_margin + width - thick >= 0);
-    xassert(width - 2 * thick >= 0);
-    xassert(y_margin + width - thick >= 0);
-    pixman_image_fill_rectangles(
-        PIXMAN_OP_SRC, buf->pix[0], &color, 1,
-        (pixman_rectangle16_t[]) {
-            {x_margin, y_margin + width - thick, width, thick}
-    });
-
-    pixman_image_unref(src);
-}
-
-static void
-render_csd_button_maximize_maximized(
-    struct terminal *term, struct buffer *buf)
-{
-    pixman_color_t color = get_csd_button_fg_color(term);
-    pixman_image_t *src = pixman_image_create_solid_fill(&color);
-
-    const int max_height = buf->height / 3;
-    const int max_width = buf->width / 3;
-
-    int width = min(max_height, max_width);
-    int thick = min(width / 2, 1 * term->scale);
-
-    const int x_margin = (buf->width - width) / 2;
-    const int y_margin = (buf->height - width) / 2;
-    const int shrink = 1;
-    xassert(x_margin + width - thick >= 0);
-    xassert(width - 2 * thick >= 0);
-    xassert(y_margin + width - thick >= 0);
-
-    pixman_image_fill_rectangles(
-        PIXMAN_OP_SRC, buf->pix[0], &color, 4,
-        (pixman_rectangle16_t[]){
-            {x_margin + shrink, y_margin + shrink, width - 2 * shrink, thick},
-            { x_margin + shrink, y_margin + thick, thick, width - 2 * thick - shrink },
-            { x_margin + width - thick - shrink, y_margin + thick, thick, width - 2 * thick - shrink },
-            { x_margin + shrink, y_margin + width - thick - shrink, width - 2 * shrink, thick }});
-
-    pixman_image_unref(src);
-
-}
-
-static void
-render_csd_button_maximize_window(
-    struct terminal *term, struct buffer *buf)
-{
-    pixman_color_t color = get_csd_button_fg_color(term);
-    pixman_image_t *src = pixman_image_create_solid_fill(&color);
-
-    const int max_height = buf->height / 3;
-    const int max_width = buf->width / 3;
-
-    int width = min(max_height, max_width);
-    int thick = min(width / 2, 1 * term->scale);
-
-    const int x_margin = (buf->width - width) / 2;
-    const int y_margin = (buf->height - width) / 2;
-
-    xassert(x_margin + width - thick >= 0);
-    xassert(width - 2 * thick >= 0);
-    xassert(y_margin + width - thick >= 0);
-
-    pixman_image_fill_rectangles(
-        PIXMAN_OP_SRC, buf->pix[0], &color, 4,
-        (pixman_rectangle16_t[]) {
-            {x_margin, y_margin, width, thick},
-            { x_margin, y_margin + thick, thick, width - 2 * thick },
-            { x_margin + width - thick, y_margin + thick, thick, width - 2 * thick },
-            { x_margin, y_margin + width - thick, width, thick }
-    });
-
-    pixman_image_unref(src);
-}
-
-static void
-render_csd_button_maximize(struct terminal *term, struct buffer *buf)
-{
-    if (term->window->is_maximized)
-        render_csd_button_maximize_maximized(term, buf);
-    else
-        render_csd_button_maximize_window(term, buf);
-}
-
-static void
-render_csd_button_close(struct terminal *term, struct buffer *buf)
-{
-    pixman_color_t color = get_csd_button_fg_color(term);
-    pixman_image_t *src = pixman_image_create_solid_fill(&color);
-
-    const int max_height = buf->height / 3;
-    const int max_width = buf->width / 3;
-
-    int width = min(max_height, max_width);
-    int thick = min(width / 2, 1 * term->scale);
-    const int x_margin = (buf->width - width) / 2;
-    const int y_margin = (buf->height - width) / 2;
-
-    xassert(x_margin + width - thick >= 0);
-    xassert(width - 2 * thick >= 0);
-    xassert(y_margin + width - thick >= 0);
-
-    pixman_triangle_t tri[4] = {
-        {
-            .p1 = {
-                .x = pixman_int_to_fixed(x_margin),
-                .y = pixman_int_to_fixed(y_margin + thick),
-            },
-            .p2 = {
-                .x = pixman_int_to_fixed(x_margin + width - thick),
-                .y = pixman_int_to_fixed(y_margin + width),
-            },
-            .p3 = {
-                .x = pixman_int_to_fixed(x_margin + thick),
-                .y = pixman_int_to_fixed(y_margin),
-            },
-        },
-
-        {
-            .p1 = {
-                .x = pixman_int_to_fixed(x_margin + width),
-                .y = pixman_int_to_fixed(y_margin + width - thick),
-            },
-            .p2 = {
-                .x = pixman_int_to_fixed(x_margin + thick),
-                .y = pixman_int_to_fixed(y_margin),
-            },
-            .p3 = {
-                .x = pixman_int_to_fixed(x_margin + width - thick),
-                .y = pixman_int_to_fixed(y_margin + width),
-            },
-        },
-
-        {
-            .p1 = {
-                .x = pixman_int_to_fixed(x_margin),
-                .y = pixman_int_to_fixed(y_margin + width - thick),
-            },
-            .p2 = {
-                .x = pixman_int_to_fixed(x_margin + width),
-                .y = pixman_int_to_fixed(y_margin + thick),
-            },
-            .p3 = {
-                .x = pixman_int_to_fixed(x_margin + thick),
-                .y = pixman_int_to_fixed(y_margin + width),
-            },
-        },
-
-        {
-            .p1 = {
-                .x = pixman_int_to_fixed(x_margin + width),
-                .y = pixman_int_to_fixed(y_margin + thick),
-            },
-            .p2 = {
-                .x = pixman_int_to_fixed(x_margin),
-                .y = pixman_int_to_fixed(y_margin + width - thick),
-            },
-            .p3 = {
-                .x = pixman_int_to_fixed(x_margin + width - thick),
-                .y = pixman_int_to_fixed(y_margin),
-            },
-        },
-    };
-
-    pixman_composite_triangles(
-        PIXMAN_OP_OVER, src, buf->pix[0], PIXMAN_a1,
-        0, 0, 0, 0, 4, tri);
-
-    pixman_image_unref(src);
 }
 
 static bool
@@ -2875,69 +2581,23 @@ render_csd_button(struct terminal *term, enum csd_surface surf_idx,
     if (info->width == 0 || info->height == 0)
         return;
 
-    uint32_t _color;
-    uint16_t alpha = 0xffff;
-    bool is_active = false;
-    bool is_set = false;
-    const uint32_t *conf_color = NULL;
+    enum term_surface kind =
+        surf_idx == CSD_SURF_MINIMIZE ? TERM_SURF_BUTTON_MINIMIZE :
+        surf_idx == CSD_SURF_MAXIMIZE ? TERM_SURF_BUTTON_MAXIMIZE :
+                                        TERM_SURF_BUTTON_CLOSE;
 
-    switch (surf_idx) {
-    case CSD_SURF_MINIMIZE:
-        _color = term->conf->colors_dark.table[4];  /* blue */
-        is_set = term->conf->csd.color.minimize_set;
-        conf_color = &term->conf->csd.color.minimize;
-        is_active = term->active_surface == TERM_SURF_BUTTON_MINIMIZE &&
-                    any_pointer_is_on_button(term, CSD_SURF_MINIMIZE);
-        break;
+    const bool hover = term->active_surface == kind &&
+        any_pointer_is_on_button(term, surf_idx);
 
-    case CSD_SURF_MAXIMIZE:
-        _color = term->conf->colors_dark.table[2];  /* green */
-        is_set = term->conf->csd.color.maximize_set;
-        conf_color = &term->conf->csd.color.maximize;
-        is_active = term->active_surface == TERM_SURF_BUTTON_MAXIMIZE &&
-                    any_pointer_is_on_button(term, CSD_SURF_MAXIMIZE);
-        break;
-
-    case CSD_SURF_CLOSE:
-        _color = term->conf->colors_dark.table[1];  /* red */
-        is_set = term->conf->csd.color.close_set;
-        conf_color = &term->conf->csd.color.quit;
-        is_active = term->active_surface == TERM_SURF_BUTTON_CLOSE &&
-                    any_pointer_is_on_button(term, CSD_SURF_CLOSE);
-        break;
-
-    default:
-        BUG("unhandled surface type: %u", (unsigned)surf_idx);
-        break;
-    }
-
-    if (is_active) {
-        if (is_set) {
-            _color = *conf_color;
-            alpha = _color >> 24 | (_color >> 24 << 8);
+    bool pressed = false;
+    if (hover) {
+        tll_foreach(term->wl->seats, it) {
+            if (tll_length(it->item.mouse.buttons) > 0)
+                pressed = true;
         }
-    } else {
-        _color = 0;
-        alpha = 0;
     }
 
-    if (!term->visual_focus)
-        _color = color_dim(term, _color);
-
-    const bool gamma_correct = wayl_do_linear_blending(term->wl, term->conf);
-    pixman_color_t color = color_hex_to_pixman_with_alpha(_color, alpha, gamma_correct);
-    render_csd_part(term, surf->surf, buf, info->width, info->height, &color);
-
-    switch (surf_idx) {
-    case CSD_SURF_MINIMIZE: render_csd_button_minimize(term, buf); break;
-    case CSD_SURF_MAXIMIZE: render_csd_button_maximize(term, buf); break;
-    case CSD_SURF_CLOSE:    render_csd_button_close(term, buf); break;
-
-    default:
-        BUG("unhandled surface type: %u", (unsigned)surf_idx);
-        break;
-    }
-
+    adw_render_button(term, surf_idx, buf, hover, pressed);
     csd_commit(term, surf, buf);
 }
 
@@ -2980,10 +2640,17 @@ render_csd(struct terminal *term)
         wl_subsurface_set_position(sub, roundf(x / scale), roundf(y / scale));
     }
 
+    /* Borders (the window shadow) only change with size and state */
+    const bool borders = adw_borders_need_render(term);
+    if (!borders) {
+        for (size_t i = CSD_SURF_LEFT; i <= CSD_SURF_BOTTOM; i++)
+            widths[i] = heights[i] = 0;
+    }
+
     struct buffer *bufs[CSD_SURF_COUNT];
     shm_get_many(term->render.chains.csd, CSD_SURF_COUNT, widths, heights, bufs);
 
-    for (size_t i = CSD_SURF_LEFT; i <= CSD_SURF_BOTTOM; i++)
+    for (size_t i = CSD_SURF_LEFT; borders && i <= CSD_SURF_BOTTOM; i++)
         render_csd_border(term, i, &infos[i], bufs[i]);
     for (size_t i = CSD_SURF_MINIMIZE; i <= CSD_SURF_CLOSE; i++)
         render_csd_button(term, i, &infos[i], bufs[i]);
@@ -3403,6 +3070,9 @@ grid_render(struct terminal *term)
     shm_addref(buf);
     buf->age = 0;
 
+    /* Undo last frame's rounded corners before re-using its pixels */
+    adw_grid_corners_restore(term, buf);
+
 
     tll_foreach(term->grid->scroll_damage, it) {
         switch (it->item.type) {
@@ -3613,6 +3283,7 @@ grid_render(struct terminal *term)
 
     render_overlay(term);
     render_ime_preedit(term, buf);
+    adw_grid_corners_apply(term, buf);
     render_scrollback_position(term);
 
     if (term->conf->tweak.render_timer != RENDER_TIMER_NONE) {

@@ -33,7 +33,7 @@
 static const uint32_t default_foreground = 0xffffff;
 static const uint32_t default_background = 0x242424;
 
-static const size_t min_csd_border_width = 5;
+static const size_t min_csd_border_width = 54;  /* ADW_SHADOW_EXTENT */
 
 #define cube6(r, g) \
     r|g|0x00, r|g|0x5f, r|g|0x87, r|g|0xaf, r|g|0xd7, r|g|0xff
@@ -3618,10 +3618,10 @@ config_load(struct config *conf, const char *conf_path,
             .font = {0},
             .hide_when_maximized = false,
             .double_click_to_maximize = true,
-            .title_height = 26,
-            .border_width = 5,
+            .title_height = 46,
+            .border_width = 54,
             .border_width_visible = 0,
-            .button_width = 26,
+            .button_width = 34,
         },
 
         .render_worker_count = sysconf(_SC_NPROCESSORS_ONLN),
@@ -3757,8 +3757,16 @@ config_load(struct config *conf, const char *conf_path,
         }
     }
 
-    if (ret && conf->csd.font.count == 0)
-        config_font_list_clone(&conf->csd.font, &conf->fonts[0]);
+    if (ret && conf->csd.font.count == 0) {
+        /* GNOME header bar title: bold UI font */
+        struct config_font font;
+        if (config_font_parse("sans-serif:weight=bold", &font)) {
+            conf->csd.font.count = 1;
+            conf->csd.font.arr = xmalloc(sizeof(font));
+            conf->csd.font.arr[0] = font;
+        } else
+            config_font_list_clone(&conf->csd.font, &conf->fonts[0]);
+    }
 
 #if defined(_DEBUG)
     for (size_t i = 0; i < conf->bindings.key.count; i++)

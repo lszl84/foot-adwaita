@@ -26,6 +26,7 @@
 #include "key-binding.h"
 #include "macros.h"
 #include "reaper.h"
+#include "adwaita.h"
 #include "render.h"
 #include "server.h"
 #include "shm.h"
@@ -659,6 +660,9 @@ main(int argc, char *const *argv)
 
     if (as_server && (server = server_init(&conf, fdm, reaper, wayl)) == NULL)
         goto out;
+
+    if (as_server)
+        adw_prewarm(wayl, &conf);
 
     volatile sig_atomic_t aborted = false;
     if (!fdm_signal_add(fdm, SIGINT, &fdm_sigint, (void *)&aborted) ||

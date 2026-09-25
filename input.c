@@ -2362,7 +2362,7 @@ is_bottom_left(const struct terminal *term, int x, int y)
     int csd_border_size = term->conf->csd.border_width;
     return (
         (!term->window->is_constrained_bottom && !term->window->is_constrained_left) &&
-        ((term->active_surface == TERM_SURF_BORDER_LEFT && y > csd_title_size * term->scale + term->height) ||
+        ((term->active_surface == TERM_SURF_BORDER_LEFT && y > csd_title_size * term->scale + term->height - 10 * term->scale) ||
          (term->active_surface == TERM_SURF_BORDER_BOTTOM && x < (10 + csd_border_size) * term->scale)));
 }
 
@@ -2373,7 +2373,7 @@ is_bottom_right(const struct terminal *term, int x, int y)
     int csd_border_size = term->conf->csd.border_width;
     return (
         (!term->window->is_constrained_bottom && !term->window->is_constrained_right) &&
-        ((term->active_surface == TERM_SURF_BORDER_RIGHT && y > csd_title_size * term->scale + term->height) ||
+        ((term->active_surface == TERM_SURF_BORDER_RIGHT && y > csd_title_size * term->scale + term->height - 10 * term->scale) ||
          (term->active_surface == TERM_SURF_BORDER_BOTTOM && x > term->width + 1 * csd_border_size * term->scale - 10 * term->scale)));
 }
 

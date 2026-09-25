@@ -399,6 +399,18 @@ struct colors {
     enum which_color_theme active_theme;
 };
 
+struct adw_corners {
+    /* Unmodified pixels of the last frame, under the rounded corners
+     * and window outline */
+    uint32_t *pix;
+    size_t pix_size;
+    pixman_box32_t rects[5];
+    size_t rect_count;
+    int width, height;
+    int opaque_key, opaque_width, opaque_height;
+    char border_key[64];  /* state the CSD borders were last rendered in */
+};
+
 struct terminal {
     struct fdm *fdm;
     struct reaper *reaper;
@@ -718,6 +730,7 @@ struct terminal {
         } last_cursor;
 
         struct buffer *last_buf;     /* Buffer we rendered to last time */
+        struct adw_corners adw_corners;
         size_t frames_since_last_immediate_release;
         bool preapply_last_frame_damage;
 

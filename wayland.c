@@ -29,6 +29,7 @@
 #include "terminal.h"
 #include "ime.h"
 #include "input.h"
+#include "adwaita.h"
 #include "render.h"
 #include "selection.h"
 #include "shm.h"
@@ -56,9 +57,10 @@ csd_reload_font(struct wl_window *win, float old_scale)
     for (size_t i = 0; i < conf->csd.font.count; i++)
         patterns[i] = conf->csd.font.arr[i].pattern;
 
+    /* 10pt at 96 DPI, like GNOME's default UI font */
     char pixelsize[32];
-    snprintf(pixelsize, sizeof(pixelsize), "pixelsize=%u",
-             (int)roundf(conf->csd.title_height * scale * 1 / 2));
+    snprintf(pixelsize, sizeof(pixelsize), "pixelsize=%.2f",
+             10. * 96. / 72. * scale);
 
     LOG_DBG("loading CSD font \"%s:%s\" (old-scale=%.2f, scale=%.2f)",
             patterns[0], pixelsize, old_scale, scale);
@@ -85,6 +87,7 @@ csd_instantiate(struct wl_window *win)
     }
 
     csd_reload_font(win, -1.);
+    win->term->render.adw_corners.border_key[0] = '\0';
 }
 
 static void
@@ -2582,6 +2585,9 @@ wayl_win_alpha_changed(struct wl_window *win)
      * Update the opaque region to match.
      */
     const bool is_opaque = term->colors.alpha == 0xffff || win->is_fullscreen;
+
+    /* Re-applied, minus the rounded corners, on the next frame */
+    adw_grid_corners_reset(term);
 
     if (is_opaque) {
         struct wl_region *region = wl_compositor_create_region(wayl->compositor);

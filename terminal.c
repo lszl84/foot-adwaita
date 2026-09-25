@@ -1910,6 +1910,7 @@ term_destroy(struct terminal *term)
     tll_free(term->render.workers.queue);
 
     shm_unref(term->render.last_buf);
+    free(term->render.adw_corners.pix);
     shm_chain_free(term->render.chains.grid);
     shm_chain_free(term->render.chains.search);
     shm_chain_free(term->render.chains.scrollback_indicator);
@@ -4797,6 +4798,7 @@ term_theme_switch_to_dark(struct terminal *term)
     term_damage_view(term);
     term_damage_margins(term);
     render_refresh(term);
+    render_refresh_csd(term);
 }
 
 void
@@ -4817,6 +4819,7 @@ term_theme_switch_to_light(struct terminal *term)
     term_damage_view(term);
     term_damage_margins(term);
     render_refresh(term);
+    render_refresh_csd(term);
 }
 
 void
@@ -4842,6 +4845,7 @@ term_theme_toggle(struct terminal *term)
     term_damage_view(term);
     term_damage_margins(term);
     render_refresh(term);
+    render_refresh_csd(term);
 }
 
 const struct color_theme *
