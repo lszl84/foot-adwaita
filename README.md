@@ -32,11 +32,13 @@ Measured on an Intel i5-8365U with UHD 620 graphics, running GNOME 48 on Wayland
 
 | | GNOME Console (kgx) | foot-adwaita |
 |---|---|---|
-| Launch → window ready to type in | **~500–640 ms** | **~35 ms**<sup>1</sup> |
-| Minimal libadwaita "hello" window | ~500 ms | n/a |
+| Launch → shell running in the new window | ~150 ms | **~35 ms**<sup>1</sup> |
+| Launch → window has keyboard focus | **~500–640 ms** | not timed<sup>2</sup> |
+| Minimal libadwaita "hello" window, launch → keyboard focus | ~500 ms | n/a |
 | Rendering one frame (median) | n/a | **~1.5 ms** |
 
-<sup>1</sup> Time from `footclient` starting until the shell is running in the new window. Most of that is GNOME configuring the window, which is the same for any app. Drawing the decorations adds about 3 ms to the first frame.
+<sup>1</sup> With `foot --server` already running, from `footclient` starting until the shell is running in the new window.<br>
+<sup>2</sup> The first frame is on screen 21–28 ms after the window is created (stock foot: 18–30 ms). Most of that is GNOME configuring the window, which is the same for any app; drawing the decorations adds about 3 ms. Keyboard focus wasn't timed on its own, but keys typed right after <kbd>Super</kbd>+<kbd>Enter</kbd> land in the new window.
 
 To keep it this fast:
 
