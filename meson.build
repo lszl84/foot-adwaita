@@ -331,6 +331,7 @@ executable(
   'notify.c', 'notify.h',
   'quirks.c', 'quirks.h',
   'reaper.c', 'reaper.h',
+  'adwaita.c', 'adwaita.h',
   'render.c', 'render.h',
   'search.c', 'search.h',
   'server.c', 'server.h', 'client-protocol.h',
@@ -393,7 +394,7 @@ scdoc = dependency('scdoc', native: true, required: get_option('docs'))
 install_data('foot.ini', install_dir: join_paths(get_option('sysconfdir'), 'xdg', 'foot'))
 if scdoc.found()
   install_data(
-    'LICENSE', 'README.md', 'CHANGELOG.md',
+    'LICENSE', 'README.md', 'README.foot.md', 'CHANGELOG.md',
     install_dir: join_paths(get_option('datadir'), 'doc', 'foot'))
   subdir('doc')
 endif
